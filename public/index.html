@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic Tac Toe avec code</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-gap: 5px;
+            margin: 50px auto;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            background-color: #f2f2f2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container text-center">
+        <h1>Tic Tac Toe</h1>
+
+        <div class="mt-4">
+            <button id="createGameBtn" class="btn btn-primary btn-lg mx-2">Créer une partie</button>
+            <input type="text" id="roomCodeInput" class="form-control d-inline-block w-25" placeholder="Entrer le code de la partie">
+            <button id="joinGameBtn" class="btn btn-success btn-lg mx-2">Rejoindre la partie</button>
+        </div>
+
+        <p id="gameCode" class="mt-4" style="display:none;"></p>
+        <p id="status" class="mt-2"></p>
+
+        <div id="board" style="display:none;">
+            <div class="cell" data-index="0"></div>
+            <div class="cell" data-index="1"></div>
+            <div class="cell" data-index="2"></div>
+            <div class="cell" data-index="3"></div>
+            <div class="cell" data-index="4"></div>
+            <div class="cell" data-index="5"></div>
+            <div class="cell" data-index="6"></div>
+            <div class="cell" data-index="7"></div>
+            <div class="cell" data-index="8"></div>
+        </div>
+
+        <!-- Nouveau bouton pour relancer la partie -->
+        <div class="mt-4">
+            <button id="restartGameBtn" class="btn btn-warning btn-lg" style="display:none;">Relancer la partie</button>
+            <!-- Nouveau bouton pour quitter la partie -->
+            <button id="leaveGameBtn" class="btn btn-danger btn-lg" style="display:none;">Quitter la partie</button>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <script>
+        const socket = io();
+    
+        const createGameBtn = document.getElementById('createGameBtn');
+        const joinGameBtn = document.getElementById('joinGameBtn');
+        const roomCodeInput = document.getElementById('roomCodeInput');
+        const gameCodeDisplay = document.getElementById('gameCode');
+        const statusDisplay = document.getElementById('status');
+        const board = document.getElementById('board');
+        const cells = document.querySelectorAll('.cell');
+        const restartGameBtn = document.getElementById('restartGameBtn');
+        const leaveGameBtn = document.getElementById('leaveGameBtn'); 
+        let currentRoom = null;
+        let playerSymbol = null;
+    
+        // Créer une nouvelle 
+        createGameBtn.addEventListener('click', () => {
+            socket.emit('createGame');
+        });
+    
+        // Rejoindre une partie via un code
+        joinGameBtn.addEventListener('click', () => {
+            const roomCode = roomCodeInput.value;
+            socket.emit('joinGame', roomCode);
+        });
+    
+        // Afficher le code de la partie créée
+        socket.on('gameCreated', (roomCode) => {
+            currentRoom = roomCode;
+            playerSymbol = 'X';  // Le créateur de la partie joue avec "X"
+            gameCodeDisplay.textContent = `Code de la partie : ${roomCode}`;
+            gameCodeDisplay.style.display = 'block';
+            statusDisplay.textContent = 'En attente d\'un autre joueur...';
+        });
+    
+        // Début de la partie lorsque le deuxième joueur rejoint
+        socket.on('startGame', (roomCode) => {
+            currentRoom = roomCode;
+            if (!playerSymbol) {
+                playerSymbol = 'O';  
+            }
+            statusDisplay.textContent = `C'est le tour de ${playerSymbol}`;
+            board.style.display = 'grid'; 
+            
+            document.querySelector('.container > div').style.display = 'none'; 
+            leaveGameBtn.style.display = 'block'; 
+        });
+    
+        // Faire un mouvement
+        cells.forEach(cell => {
+            cell.addEventListener('click', () => {
+                const index = cell.getAttribute('data-index');
+                if (!cell.textContent && currentRoom) {
+                    socket.emit('makeMove', { roomCode: currentRoom, index, symbol: playerSymbol });
+                }
+            });
+        });
+    
+        // Mettre à jour le plateau de jeu lorsqu'un mouvement est effectué
+        socket.on('moveMade', ({ index, symbol }) => {
+            cells[index].textContent = symbol;
+            const nextTurn = symbol === 'X' ? 'O' : 'X';
+            statusDisplay.textContent = `C'est le tour de ${nextTurn}`;
+        });
+    
+        // Fin de la partie
+        socket.on('gameOver', ({ winner }) => {
+            if (winner) {
+                statusDisplay.textContent = `Le joueur ${winner} a gagné !`;
+            } else {
+                statusDisplay.textContent = 'Match nul !';
+            }
+            board.style.pointerEvents = 'none';  // Bloque les clics si terminée
+            restartGameBtn.style.display = 'block'; // Affiche le btn de relance
+            leaveGameBtn.style.display = 'none'; // Cache le btn Quitter
+        });
+    
+        // Relancer la partie
+        restartGameBtn.addEventListener('click', () => {
+            socket.emit('restartGame', currentRoom); // Émet l'événement pour relancer la partie
+        });
+    
+        // Réinitialiser le plateau lorsque la partie est relancée
+        socket.on('gameRestarted', () => {
+            resetBoard(); 
+            statusDisplay.textContent = 'C\'est le tour de X'; 
+            board.style.pointerEvents = 'auto'; 
+            restartGameBtn.style.display = 'none';
+            leaveGameBtn.style.display = 'block'; 
+        });
+
+    
+        // Quitter la partie
+        leaveGameBtn.addEventListener('click', () => {
+            socket.emit('leaveGame', currentRoom);
+        });
+    
+      
+        socket.on('gameLeft', () => {
+            currentRoom = null; 
+            playerSymbol = null; 
+            statusDisplay.textContent = 'Un joueur a quitté la partie.'; 
+            resetBoard(); 
+            gameCodeDisplay.style.display = 'none'; 
+            board.style.display = 'none'; 
+            document.querySelector('.container > div').style.display = 'block'; 
+            leaveGameBtn.style.display = 'none'; 
+            restartGameBtn.style.display = 'none'; 
+        });
+
+
+    
+        socket.on('joinError', (message) => {
+            alert(message);
+        });
+
+        function resetBoard() {
+            cells.forEach(cell => {
+            cell.textContent = ''; // Réinitialise toutes les cases
+        });
+}
+    </script>
+    
+</body>
+</html>
